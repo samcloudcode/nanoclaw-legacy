@@ -23,37 +23,47 @@ Runs on **Linux (Fedora)**. Single Node.js process with a web interface as the p
 
 ## Agent Skills & Vault Sync
 
-Skills and group CLAUDE.md files live in the **Obsidian vault** at `~/Documents/Life/NanoClaw/`, synced across devices via Obsidian Sync. The vault is the single source of truth.
+Skills live in the **Obsidian vault** at `~/Documents/Life/NanoClaw/`, synced across devices via Obsidian Sync. The vault is the live source of truth — it's mounted directly into containers. Git (`container/skills/`) is the version archive.
 
 ### How it works
 
-**Markdown files** (SKILL.md, references/) live in the vault, synced via Obsidian Sync. **Scripts** (.mjs, .sh) live in `container/skills/` in the git repo and must be scp'd to the server vault when changed:
+All skill files (.md, .mjs, .sh) in `container/skills/` mirror the vault. The vault is mounted at `/home/node/.claude/skills/` (read-write). When the agent creates or edits skills live, those changes land in the vault first — pull them into git to version them.
 
-```bash
-rsync -a --exclude='*.md' container/skills/ nanoclaw:~/Documents/Life/NanoClaw/skills/
-```
-
-The vault skills dir is **directly mounted** into containers at `/home/node/.claude/skills/`. Config: `VAULT_SKILLS_DIR` in `src/config.ts`, mount in `src/container-runner.ts`.
+Config: `VAULT_SKILLS_DIR` in `src/config.ts`, mount in `src/container-runner.ts`.
 
 Group CLAUDE.md files are mounted as **single-file overlays** from vault. Agent edits write directly to the vault. Logs, traces, and conversations stay in `groups/`.
 
 Fallback: if vault paths don't exist, falls back to `container/skills/` and `groups/` in the repo.
 
-**Important:** When editing group CLAUDE.md or skill .md files, always edit the **vault copy** (`~/Documents/Life/NanoClaw/`), not the git repo copy (`groups/` or `container/skills/`). The vault is the source of truth — the git copies are outdated.
+### Sync scripts
+
+**Pull** (vault → git, captures agent's live edits):
+```bash
+./scripts/pull-skills.sh        # sync all files + show git status
+./scripts/pull-skills.sh -n     # dry run
+```
+Uses `--delete` — vault is authoritative.
+
+**Push** (git → vault, after local edits):
+```bash
+./scripts/push-skills.sh        # sync to server (additive, no delete)
+./scripts/push-skills.sh -n     # dry run
+```
+Syncs `.md` files too. Add `--delete` only if intentionally removing skills from vault.
 
 ### Vault structure
 ```
 ~/Documents/Life/NanoClaw/
   skills/           → mounted at /home/node/.claude/skills/ (read-write)
-    <name>/SKILL.md       ← vault (Obsidian Sync)
-    <name>/*.mjs, *.sh    ← git repo (scp'd to server)
+    <name>/SKILL.md       ← vault (live) + git (archived)
+    <name>/*.mjs, *.sh    ← vault (live) + git (archived)
   groups/
     main/CLAUDE.md  → overlaid at /workspace/group/CLAUDE.md
     global/CLAUDE.md → overlaid at /workspace/global/CLAUDE.md (read-only for non-main)
 ```
 
 ### Adding a skill
-Create `~/Documents/Life/NanoClaw/skills/<name>/SKILL.md` (or ask the agent to use the `skill-creator` skill). If the skill includes scripts, add them to `container/skills/<name>/` in the repo and sync to server.
+Create `~/Documents/Life/NanoClaw/skills/<name>/SKILL.md` in the vault (or let the agent use `skill-creator`), then run `./scripts/pull-skills.sh` to bring it into git. For local development, create in `container/skills/` and push with `./scripts/push-skills.sh`.
 
 ## Host Skills
 
